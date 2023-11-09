@@ -14,6 +14,9 @@ knitr::opts_chunk$set(echo = FALSE)
 library(kableExtra)
 ```
 
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 70)
+```
 
 ## Setup and Code Availability
 
@@ -60,10 +63,14 @@ knitr::include_graphics("figures/disconnect-question.jpg")
 1. Use an existing method for differential abundance.
     - ALDEx2, DESeq2, edgeR, etc.
     - These methods rely on *normalizations*.
+    
+    $$\tilde{\theta_d} = \mathrm{mean}_{\mathrm{post}} \, f(Y) - \mathrm{mean}_{\mathrm{pre}} \, f(Y).$$
 
 2. Reframe the question (CoDA).
     - Data are compositional.
     - Differential abundance cannot be done rigorously.
+    
+    $$\tilde{\theta_d} = \mathrm{mean}_{\mathrm{post}} \, \mathrm{CLR}(Y) - \mathrm{mean}_{\mathrm{pre}} \, \mathrm{CLR}(Y).$$
     
 ## Problems with these Options
 
@@ -81,16 +88,18 @@ A middle ground approach:
 
 - $Y$ is a measurement of the underlying system $W$.
 
-- Desired quantity depends on $W$ (i.e., $\theta = f(W)$). However, $W$ depends on both the composition and system scale, i.e.:
+- Desired quantity depends on $W$ (i.e., $\theta = f(W)$). However, $W$ depends on both the composition and system scale:
 
 $$W_{dn} = W_{dn}^\parallel W_n^\perp$$
 $$W_n^\perp = \sum_{d=1}^D W_{dn}$$
 
 ## Scale Simulation Random Variables
 
+**Goal:** Estimate $\theta = f(W^\parallel, W^\perp)$.
+
 1. Draw samples of $W^{\parallel}$ from a measurement model (can depend on $Y$).
 2. Draw samples of $W^{\perp}$ from a scale model (can depend on $W^{\parallel}$).
-3. Calculate samples of $\theta = f(W^\parallel, W^\perp)$.
+3. Estimate samples of $\theta = f(W^\parallel, W^\perp)$.
 
 # Adding Scale to ALDEx2
 
@@ -116,6 +125,17 @@ Step 2 places an assumption on system scale.
 
 $$\log W_n^\perp = - \mathrm{mean}(\log \hat{W}_{\cdot n}^\parallel).$$
 
+## Unacknowledged Bias within ALDEx2
+
+```{r, echo=FALSE, out.width = '90%', fig.align='center'}
+knitr::include_graphics("figures/unack_bias.png")
+```
+
+## Moving Past Normalizations to Scale within ALDEx2
+
+What if we consider error in this assumption?
+
+$$\log W_n^\perp = - \mathrm{mean}(\log \hat{W}_{\cdot n}^\parallel) + \epsilon.$$
 
 ## Moving Past Normalizations to Scale within ALDEx2
 
@@ -140,16 +160,10 @@ There are no restrictions on $Q$, although there are some helpful options:
 
 ## Data Simulation
 
-We have:
+```{r, echo=FALSE, out.width = '80%', fig.align='center'}
+knitr::include_graphics("figures/data_sim.png")
+```
 
-  - 2 conditions (pre- and post- administration) with 50 samples per condition.
-  - 20 taxa: 4 change between conditions, 16 don't.
-  
-To simulate the data, we:
-
-  1. Use the Poisson distribution to sample true abundances ($W$).
-  2. Use Multinomial sampling to sub-sample $W$ to an arbitrary sequencing depth ($Y$).
-  
 Simulation functions can be found in scripts > data_simulation.R.
 
 ## Reading in the Simulated Data
@@ -184,15 +198,15 @@ conds[c(1:4,51:55)]
 
 ## Effects of Unacknowledged Bias
 
-```{r, echo = TRUE, message = FALSE,  tidy=TRUE, tidy.opts=list(width.cutoff=50), results = "asis"}
+```{r, echo = TRUE, message = FALSE,  tidy=TRUE, tidy.opts=list(width.cutoff=50)}
 ## Fitting and analyzing the original ALDEx2 model
 mod.base <- aldex(Y, conds)
-print(row.names(mod.base %>% filter(we.eBH < 0.05)))
+row.names(mod.base %>% filter(we.eBH < 0.05))
 ```
 
 ## Including scale through `gamma`.
 
-- The argument `gamma` has been added to the `aldex` and `aldex.clr` function.
+- Added as argument to the `aldex` and `aldex.clr` function.
 
 - `gamma` can either be a single numeric or a matrix.
     1. Single numeric: controls the noise on the default scale model.
@@ -207,23 +221,17 @@ $$\Lambda^\perp  \sim \ N(0, \gamma^2).$$
 
 ## Decoding the Default Scale Model
 
-If $\gamma \rightarrow 0$, the default scale model is equal to the CLR, i.e., 
-
-$$\log \hat{W}_{n}^{\perp(s)} = - \mathrm{mean} \left(\log \hat{W}^{\parallel (s)}_{\cdot n}\right).$$
-
-Thus, the noise component controls deviations from this assumption.
+```{r, echo=FALSE, out.width = '80%', fig.align='center'}
+knitr::include_graphics("figures/default-scale.jpg")
+```
 
 ## Decoding the Default Scale Model
 
-$$\log \hat{W}_{n}^{\perp(s)} = - \mathrm{mean} \left(\log \hat{W}^{\parallel (s)}_{\cdot n}\right) + \Lambda^\perp x_{n}$$
-$$\Lambda^\perp  \sim \ N(0, \gamma^2).$$
-
-- By the empirical rule, 95% of samples from $\Lambda^\perp$ fall within $2 \gamma$ of zero.
-- This implies that, with 95% certainty, the scales between conditions fall within the range ($2^{\hat{\theta}^\perp-2 \gamma}, 2^{\hat{\theta}^\perp+2 \gamma}$) where $\hat{\theta}^\perp$ is what is implied by the CLR.
+```{r, echo=FALSE, out.width = '80%', fig.align='center'}
+knitr::include_graphics("figures/theta-est.jpg")
+```
 
 ## Re-creating the CLR with `gamma`.
-
-We can recreate the CLR by letting $\gamma \rightarrow 0$.
 
 ```{r, echo = TRUE, message = FALSE, out.width="60%", fig.align='center'}
 mod.clr <- aldex(Y, conds, gamma = 1e-3)
@@ -237,8 +245,7 @@ abline(a=0,b=1, col = "red", lty = "dashed")
 
 We recommend a value of $\gamma = 0.50$.
 
-- This corresponds the the assumption that 95\% of the scale samples are within $(0.5, 2)$ of the geometric mean.
-- In words, 95% of the scale samples are within half or double of the amount implied by the normalization.
+- 95% of the scale samples are within half or double of the amount implied by the normalization.
 - **Any value of $\gamma > 0$ is an improvement over the status quo!!**
 
 ## Option 1: Examples (Some Noise)
@@ -260,7 +267,7 @@ mod.ss.high <- aldex(Y, conds, gamma = 1)
 mod.ss.high %>% filter(we.eBH < 0.05)
 ```
 
-<p style="text-align: center;">**1 of 20 taxa (all true positives) are significant!**</p>
+<p style="text-align: center;">**No taxa are significant!**</p>
 
 
 ## Option 2: Create Your Own Scale Matrix
@@ -275,7 +282,7 @@ Alternatively, can pass a matrix of scale samples to `gamma` so long as:
 
 - Scale is guided by the biological system or the researcher's prior beliefs.
 
-- For example, suppose we expect the antibiotic to decrease the total scale by 10%. This can be written in a scale model:
+- Suppose we expect the antibiotic to decrease the total scale by 10%. This can be written in a scale model:
 
 $$\log \hat{W}_n^{(s)} \sim N(1.0, \gamma^2) \, \, \mathrm{if} \, \, x_n = \mathrm{``pre"}$$
 $$\log \hat{W}_n^{(s)} \sim N(0.9, \gamma^2) \, \, \mathrm{if} \, \, x_n = \mathrm{``post"}.$$
@@ -285,10 +292,8 @@ $$\log \hat{W}_n^{(s)} \sim N(0.9, \gamma^2) \, \, \mathrm{if} \, \, x_n = \math
 
 - The `aldex.makeScaleMatrix` function can help with this.
 
-- It will sample from a log Normal distribution given a mean vector for each condition.
-
-- For example, if there are only two samples,
-`aldex.makeScaleMatrix(1, c(1,.9), conds <- c("pre", "post"), log = FALSE)` will sample a 10% decrease in means between conditions.
+- Two sample example:
+`aldex.makeScaleMatrix(gamma <- 1, mu <- c(1,.9), conds <- c("pre", "post"), log = FALSE)`
 
 - Note: The absolute scale doesn't matter. It is the relationship between conditions.
 
@@ -299,7 +304,7 @@ $$\log \hat{W}_n^{(s)} \sim N(0.9, \gamma^2) \, \, \mathrm{if} \, \, x_n = \math
 scales <- c(rep(1, 50), rep(0.9, 50))
 scale_samps <- aldex.makeScaleMatrix(.15, scales, conds, log=FALSE)
 mod.know <- aldex(Y, conds, gamma = scale_samps)
-mod.know %>% filter(we.eBH < 0.05)
+row.names(mod.know %>% filter(we.eBH < 0.05))
 ```
 
 
@@ -309,8 +314,10 @@ mod.know %>% filter(we.eBH < 0.05)
 
 - These can be used in building a scale model *if* they are informative on the scale of interest.
 
-- Suppose we have access to flow cytometry measurements $(z_{1n}, z_{2n}, z_{3n})$. We could build a scale model of the form:
-$$\log \hat{W}^{\perp (s)}_{n} \sim N(\mathrm{mean}(z_{1n}, z_{2n}, z_{3n}),\text{var}(z_{1n}, z_{2n}, z_{3n})).$$
+</br>
+</br>
+
+$$\hat{W}^{\perp (s)}_{n} \sim N(\mathrm{mean}(z_{1n}, z_{2n}, z_{3n}),\text{var}(z_{1n}, z_{2n}, z_{3n})).$$
 
 ## Example 2: Flow Cytometry Data
 
@@ -340,7 +347,7 @@ for(i in 1:nrow(scale_samps)){
 ## Example 2: Flow Cytometry Data
 ```{r, message = FALSE, echo = TRUE, tidy=TRUE, tidy.opts=list(width.cutoff=60)}
 mod.flow <- aldex(Y, conds, gamma = scale_samps)
-mod.flow %>% filter(we.eBH < 0.05)
+row.names(mod.flow %>% filter(we.eBH < 0.05))
 ```
 
 
@@ -437,22 +444,11 @@ p <- plot_grid(p1, p2, nrow=2, align="v", rel_heights=c(1.7, 1))
 p
 ```
 
-## Sensitivity Analyses
-
-- How do we choose a value of $\gamma$?
-
-- Sensitivity analyses allow us to understand how an entity's significance changes with varying amounts of scale noise.
-
-- Several built-in functions help with this: `aldex.senAnalysis` and `plotGamma`.
-
 ## Sensitivity Analyses in ALDEx2
 
-To run a sensitivity analysis in ALDEx2 using the default scale model, do the following:
-
-1. Specify a vector of values of $\gamma$ to test.
-2. Run `aldex.clr` on the OTU table and conditions.
-3. Run `aldex.senAnalysis` on the clr object and values of $\gamma$.
-4. (Optional) Use `plotGamma` to visualize results.
+```{r, echo=FALSE, out.width = '50%', fig.align='center'}
+knitr::include_graphics("figures/sen-analysis.jpg")
+```
 
 ## Example: Sensitivity Analyses
 ```{r, echo = TRUE, message = FALSE, eval = FALSE}
@@ -493,19 +489,6 @@ p[[1]]
 
 ## Example: Sensitivity Analyses
 ```{r, echo = FALSE, message = FALSE}
-##Now running a sensitivity analysis over the default scale model
-
-##First, specifying different values for the noise in the scale
-gamma_to_test <- c(1e-3, .1, .25, .5, .75, 1, 2, 3, 4, 5)
-
-##Run the CLR function
-clr <- aldex.clr(Y, conds)
-
-##Run sensitivity analysis function
-sen_res <- aldex.senAnalysis(clr, gamma = gamma_to_test)
-
-##Plotting the sensitivity results.
-p <- plotGamma(sen_res, thresh = .1)
 p[[2]]
 
 ```
@@ -527,8 +510,6 @@ p[[2]]
 
 ## Reading in the Data
 
-The 'selex' data is built-in to 'ALDEx2'.
-
 ```{r, echo = TRUE, message = FALSE, warning = FALSE}
 library(ALDEx2)
 library(tidyverse)
@@ -537,7 +518,6 @@ library(ggrepel)
 conds <- c(rep("NS", 7), rep("S", 7))
 
 data(selex)
-dim(selex)
 selex[1:4,1:4]
 ```
 

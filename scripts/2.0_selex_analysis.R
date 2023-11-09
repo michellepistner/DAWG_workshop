@@ -9,11 +9,12 @@ conds
 
 ##Examining the selex data
 data(selex)
-head(selex)
 dim(selex)
+head(selex)
 
 ##Ground truth, from outside experiments
 true.pos <- read.delim(file.path("data","selex","selex-truth.txt"))$X
+true.pos
 
 ##ALDEx2
 aldex.mod <- aldex(selex,conds)

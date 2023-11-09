@@ -4,6 +4,9 @@ author: "Michelle Nixon with Justin Silverman"
 date: "November 10, 2023"
 output:
   ioslides_presentation: default
+params:
+  email: pistner@psu.edu
+  github: michellepistner
 ---
 
 ```{r setup, include=FALSE}
@@ -24,37 +27,123 @@ BiocManager::install("ALDEx2")
 devtools::install_github("ggloor/ALDEx_bioc")
 ```
 
-* All workshop materials can be found on GitHub (URL here).
+* All workshop materials can be found on GitHub (https://github.com/michellepistner/dawg_workshop).
 
 
+## Problem Set-Up
 
-## Sequence Count Data
+Consider a simple study of the microbiome pre/post antibiotic administration.
 
-We are considering data that was collected by high-throughput sequencing (HTS) technologies.
+  - Research question: Which taxa change in absolute abundance after taking an antibiotic?
+  - How do we analyze this data to answer the question?
 
-```{r, echo=FALSE, out.width = '100%', align = "center"}
-knitr::include_graphics("figures/HTS_sampling.png")
+## Sequence Count Data as a Sample
+
+```{r, echo=FALSE, out.width = '75%', fig.align='center'}
+knitr::include_graphics("figures/sampling-loss.jpg")
 ```
 
-<p style="text-align: center;">**Sample-to-sample variation is driven by this process rather than biology.**</p>
+## Gap between Data and System
+
+```{r, echo=FALSE, out.width = '100%', fig.align='center'}
+knitr::include_graphics("figures/information-loss.jpg")
+```
+
+## Implications for Analysis
+
+```{r, echo=FALSE, out.width = '100%', align = "center"}
+knitr::include_graphics("figures/disconnect-question.jpg")
+```
+
+## Options for Analysis
+
+1. Use an existing method for differential abundance.
+    - ALDEx2, DESeq2, edgeR, etc.
+    - These methods rely on *normalizations*.
+
+2. Reframe the question (CoDA).
+    - Data are compositional.
+    - Differential abundance cannot be done rigorously.
+    
+## Problems with these Options
+
+- **Option 1:** Disconnect between question and normalization can lead to elevated type-I and type-II errors. <span style="color: lightgrey;">Why?</span>
+
+```{r, echo=FALSE, out.width = '70%', fig.align='center'}
+knitr::include_graphics("figures/unack_bias.png")
+```
+
+- **Option 2:** Can't answer many research questions. 
+
+## New Option: Scale Reliant Inference
+
+A middle ground approach:
+
+- $Y$ is a measurement of the underlying system $W$.
+
+- Desired quantity depends on $W$ (i.e., $\theta = f(W)$). However, $W$ depends on both the composition and system scale, i.e.:
+
+$$W_{dn} = W_{dn}^\parallel W_n^\perp$$
+$$W_n^\perp = \sum_{d=1}^D W_{dn}$$
+
+## Scale Simulation Random Variables
+
+1. Draw samples of $W^{\parallel}$ from a measurement model (can depend on $Y$).
+2. Draw samples of $W^{\perp}$ from a scale model (can depend on $W^{\parallel}$).
+3. Calculate samples of $\theta = f(W^\parallel, W^\perp)$.
+
+# Adding Scale to ALDEx2
+
+## ALDEx2 Software Suite
+
+```{r, echo=FALSE, out.width = '50%', fig.align='center'}
+knitr::include_graphics("figures/aldex-steps1-2.jpg")
+```
+
+## ALDEx2 Software Suite
+
+```{r, echo=FALSE, out.width = '80%', fig.align='center'}
+knitr::include_graphics("figures/aldex-steps3-4.jpg")
+```
+
+## Unacknowledged Bias within ALDEx2
+
+Step 2 places an assumption on system scale.
+
+- Consider that $\log W_{dn} = \log W_{dn}^\parallel + \log W_n^\perp$.
+
+- We can show that the CLR transformation corresponds to the assumption:
+
+$$\log W_n^\perp = - \mathrm{mean}(\log \hat{W}_{\cdot n}^\parallel).$$
 
 
-## Notation
+## Moving Past Normalizations to Scale within ALDEx2
 
-- $W$: A $D \times N$ table of true counts in the underlying system where $D$ is the number of taxa/species/etc. and $N$ is the number of samples.
-- $Y$: A $D \times N$ table of sampled data where $D$ is the number of taxa/species/etc. and $N$ is the number of samples.
-- $X$: A $Q \times N$ table of covariates where $Q$ is the number of variables of interest.
+```{r, echo=FALSE, out.width = '45%', fig.align='center'}
+knitr::include_graphics("figures/new-aldex-steps1-2.jpg")
+```
 
-$$\\[0.25in]$$
 
-<p style="text-align: center;">**$W$ is the true table of counts (e.g., actual counts in the stomach) whereas $Y$ is the sampled counts.**</p>
+## Scale Models in ALDEx2
+
+Normalizations are replaced by a scale model:
+
+$$\log W_n^\perp \sim Q$$
+
+There are no restrictions on $Q$, although there are some helpful options:
+
+1. Based on normalizations.
+2. Based on biological knowledge.
+3. Based on outside measurements.
+
+# New Additions to ALDEx2
 
 ## Data Simulation
 
-Consider a simple simulation studying the microbiome pre/post antibiotic administration:
+We have:
 
-  - 2 conditions (pre- and post- administration) with 50 samples per condition
-  - 20 taxa: 4 change between conditions, 16 don't
+  - 2 conditions (pre- and post- administration) with 50 samples per condition.
+  - 20 taxa: 4 change between conditions, 16 don't.
   
 To simulate the data, we:
 
@@ -87,166 +176,19 @@ flow_data <- read.csv(file.path("data/simulation/sim_flow_dat.csv"))
 Y <- t(rdat[,-1])
 Y[1:4,1:4]
 
-##Vector denoting whether samples was in pre- or post- antibiotic condition.
+##Vector denoting whether samples was in
+##pre- or post- antibiotic condition.
 conds <- as.character(rdat[,1])
 conds[c(1:4,51:55)]
 ```
 
-## Research Question
-
-**Which taxa change in abundance after antibiotic administration?**
-
-* This can be answered by estimating and testing log-fold change for each taxa, i.e.:
-$$\theta_d = \mathrm{mean}_{n:x_n = 1} \log W_{dn} - \mathrm{mean}_{n:x_n=0} \log W_{dn}.$$
-
-* How should we analyze this data to answer the research question?
-
-## Option 1: Categorical Data Perspective
-
-Sequencing depth variation is *extra noise* that must be removed.
-
-1. Data Normalizations
-    - Rarefaction
-    - Total Sum Scaling (converting to proportions)
-    - Median of Ratios Normalization (DESeq2)
-2. Parameter Normalization in Multinomial Models
-    - Centered Log-Ratio Transformation (ALDEx2, SpiecEasi, Songbird)
-3. Penalized Estimators (CCLasso, SparCC)
-
-## These methods get worse with more data.
-
-```{r, echo=FALSE, out.width = '90%', align = "center"}
-knitr::include_graphics("figures/unack_bias.png")
-```
-
-## Option 2: CoDA Perspective
-- These data are compositional.
-- Certain analyses (e.g., differential abundance) cannot be done rigorously.
-
-```{r, echo=FALSE, out.width = '100%', align = "center"}
-knitr::include_graphics("figures/gloor_paper.png")
-```
-
-## New Option: Scale Reliant Inference Perspective
-
-Recently, we developed a new perspective that bridges the gap between these two approaches. 
-
-- $Y$ is a measurement of the underlying system $W$.
-
-- We are trying to estimate a quantity that depends on $W$ (i.e., $\theta = f(W)$). However, $W$ depends on both the composition and system scale, i.e.:
-
-$$W_{dn} = W_{dn}^\parallel W_n^\perp$$
-$$W_n^\perp = \sum_{d=1}^D W_{dn}$$
-
-## Disconnect between Our Research Question and Common Estimators
-
-Normalizations (Option 1) create a disconnect between the research question the actual analysis.
-
-Consider the desired estimate of log-fold changes:
-$$\theta_d = \mathrm{mean}_{n:x_n = 1} \log W_{dn} - \mathrm{mean}_{n:x_n=0} \log W_{dn}.$$
-Normalizations return estimates of differences in *normalized* amounts:
-
-$$\tilde{\theta}_d = \mathrm{mean}_{n:x_n = 1} \log \tilde{W}_{dn} - \mathrm{mean}_{n:x_n=0} \log \tilde{W}_{dn}.$$
-
-<p style="text-align: center;">**Can these two be the same?**</p>
-
-## Problems with Deterministic Normalizations
-
-1. They impose some sort of modeling assumption about the system scale.
-
-2. They are often hard to interpret.
-
-3. They are often assumed with complete certainty.
-
-## ALDEx2 Software Suite
-
-ALDEx2 is a general purpose software suite that can be used to fit a wide variety of linear models (including differential abundance).
-
-- **Step 1:** Model sampling uncertainty by drawing $S$ samples from a Dirichlet distribution.
-
-$$W_{\cdot i}^{\parallel (s)} \sim \mathrm{Dir}(Y_{\cdot i} + \alpha)$$
-
-- **Step 2:** Transform these samples using the CLR.
-
-$$\log \hat{W}_{\cdot i}^{(s)} = \log W_{\cdot i}^{\parallel (s)} - \mathrm{mean}(\log W_{\cdot i}^{\parallel (s)}) $$
-
-## ALDEx2 Software Suite, cont.
-
-- **Step 3:** Test for differences in log-fold changes.
-
-$$\hat{\theta}_d^{(s)} = \mathrm{mean}_{i \in \mathrm{case}} \log \hat{W}_{di}^{(s)} - \mathrm{mean}_{i \in \mathrm{control}} \log \hat{W}_{di}^{(s)}$$
-
-$$H_0: \hat{\theta}_d^{(s)} = 0 \, \, \, \mathrm{versus} \, \, \, H_A: \hat{\theta}_d^{(s)} \ne 0$$
-
-- **Step 4:** Aggregate over the Monte Carlo replicates.
-
-$$ \hat{\theta}_d =  \sum_{s=1}^S \hat{\theta}_d^{(s)}$$
-
-$$ \hat{p}_d =  \sum_{s=1}^S \hat{p}_d^{(s)}$$
-
-
-
-## Unacknowledged Bias within ALDEx2
-
-Step 2 places an assumption on system scale.
-
-- Consider that $\log W_{dn} = \log W_{dn}^\parallel + \log W_n^\perp$.
-
-- After some math, we can show that the CLR transformation in Step 2 corresponds to the assumption
-
-$$\log W_n^\perp = - \mathrm{mean}(\log \hat{W}_{\cdot n}^\parallel).$$
-
-<p style="text-align: center;">**How does this affect inference?**</p>
-
-<p style="text-align: center;">**Is this ever (exactly) true? Can it ever be useful?**</p>
-
-## The Practical Effects of Unacknowledged Bias
+## Effects of Unacknowledged Bias
 
 ```{r, echo = TRUE, message = FALSE,  tidy=TRUE, tidy.opts=list(width.cutoff=50), results = "asis"}
 ## Fitting and analyzing the original ALDEx2 model
 mod.base <- aldex(Y, conds)
 print(row.names(mod.base %>% filter(we.eBH < 0.05)))
 ```
-
-<p style="text-align: center;">**All taxa are significant! FDR of 80%!!**</p>
-
-## Moving Past Normalizations to Scale within ALDEx2
-
-Rather than use the CLR or another normalization, we use a stochastic model for scale, i.e. replace Step 2:
-
-- **Step 1:** Model sampling uncertainty by drawing $S$ samples from a Dirichlet distribution.
-
-$$W_{\cdot i}^{\parallel (s)} \sim \mathrm{Dir}(Y_{\cdot i} + \alpha)$$
-
-- **Step 2:** Sample $\log W_n^\perp \sim Q$, combine with samples from Step 1.
-
-- **Steps 3 + 4:** As before.
-
-
-## Re-creating the CLR with scale.
-
-We can recreate the CLR with the following model:
-
-$$Q \sim N(- \mathrm{mean}(\log \hat{W}_{\cdot n}^\parallel), 1e-3).$$
-
-```{r, echo = TRUE, message = FALSE, out.width="50%", fig.align='center'}
-mod.clr <- aldex(Y, conds, gamma = 1e-3)
-plot(mod.base$effect, mod.clr$effect, xlab = "Original ALDEx2 
-  Effect Size", ylab = "CLR Scale Model Effect Size")
-abline(a=0,b=1, col = "red", lty = "dashed")
-```
-
-
-## Scale Models in ALDEx2
-$$\log W_n^\perp \sim Q$$
-
-We place no restrictions on what $Q$ can be, although there are some helpful options to consider:
-
-1. Scale models that place errors on normalization assumptions.
-2. Scale models that use outside measurements.
-3. Scale models that use biological knowledge.
-
-# New Additions to ALDEx2
 
 ## Including scale through `gamma`.
 
@@ -255,6 +197,7 @@ We place no restrictions on what $Q$ can be, although there are some helpful opt
 - `gamma` can either be a single numeric or a matrix.
     1. Single numeric: controls the noise on the default scale model.
     2. Matrix: A $N \times S$ matrix of samples of $W$.
+    
 
 ## Option 1: Default Scale Model
 The default scale model is based on errors in the CLR normalization.
@@ -264,20 +207,30 @@ $$\Lambda^\perp  \sim \ N(0, \gamma^2).$$
 
 ## Decoding the Default Scale Model
 
-Note that if $\gamma \rightarrow 0$, the default scale model is equal to the normalization, i.e., 
+If $\gamma \rightarrow 0$, the default scale model is equal to the CLR, i.e., 
 
 $$\log \hat{W}_{n}^{\perp(s)} = - \mathrm{mean} \left(\log \hat{W}^{\parallel (s)}_{\cdot n}\right).$$
 
-Thus, the noise component ($\Lambda^\perp x_{n}$) where $\Lambda^\perp  \sim \ N(0, \gamma^2)$ controls deviations from this assumption.
+Thus, the noise component controls deviations from this assumption.
 
-## Decoding the Default Scale Model, cont.
+## Decoding the Default Scale Model
 
 $$\log \hat{W}_{n}^{\perp(s)} = - \mathrm{mean} \left(\log \hat{W}^{\parallel (s)}_{\cdot n}\right) + \Lambda^\perp x_{n}$$
 $$\Lambda^\perp  \sim \ N(0, \gamma^2).$$
 
 - By the empirical rule, 95% of samples from $\Lambda^\perp$ fall within $2 \gamma$ of zero.
-- This implies that, with 95% certainty, the scale of the pre-condition falls within $2^{\pm 2 \gamma}$ of the post-condition.
-- Taken with the CLR assumption, this implies that, with 95% certainty, the scales between conditions fall within the range ($2^{\hat{\theta}^\perp-2 \gamma}, 2^{\hat{\theta}^\perp+2 \gamma}$) where $\hat{\theta}^\perp$ is what is implied by the CLR.
+- This implies that, with 95% certainty, the scales between conditions fall within the range ($2^{\hat{\theta}^\perp-2 \gamma}, 2^{\hat{\theta}^\perp+2 \gamma}$) where $\hat{\theta}^\perp$ is what is implied by the CLR.
+
+## Re-creating the CLR with `gamma`.
+
+We can recreate the CLR by letting $\gamma \rightarrow 0$.
+
+```{r, echo = TRUE, message = FALSE, out.width="60%", fig.align='center'}
+mod.clr <- aldex(Y, conds, gamma = 1e-3)
+plot(mod.base$effect, mod.clr$effect, xlab = "Original ALDEx2 
+  Effect Size", ylab = "CLR Scale Model Effect Size")
+abline(a=0,b=1, col = "red", lty = "dashed")
+```
 
 
 ## How to Choose $\gamma$
@@ -312,24 +265,23 @@ mod.ss.high %>% filter(we.eBH < 0.05)
 
 ## Option 2: Create Your Own Scale Matrix
 
-- Alternatively, can pass a matrix of scale samples to `gamma` so long as:
-    1. The dimension is $N \times S$.
-    2. They are samples of $W^\perp$ not $\log W^\perp$.
-    
-- The `aldex.makeScaleMatrix` function can help with this.
+Alternatively, can pass a matrix of scale samples to `gamma` so long as:
+
+1. The dimension is $N \times S$.
+2. They are samples of $W^\perp$ not $\log W^\perp$.
+
 
 ## Example 1: Based on Biology
 
-- Scale is guided by the bounds of plausibility of the biological system or the researcher's prior beliefs.
+- Scale is guided by the biological system or the researcher's prior beliefs.
 
-- For example, suppose we expect the antibiotic to decrease the total scale by 10%.
+- For example, suppose we expect the antibiotic to decrease the total scale by 10%. This can be written in a scale model:
 
-- Letting $x_n = 1$ in the pre-condition and $x_n = 0$ in the post-condition, we can write this assumption in a scale model:
+$$\log \hat{W}_n^{(s)} \sim N(1.0, \gamma^2) \, \, \mathrm{if} \, \, x_n = \mathrm{``pre"}$$
+$$\log \hat{W}_n^{(s)} \sim N(0.9, \gamma^2) \, \, \mathrm{if} \, \, x_n = \mathrm{``post"}.$$
 
-$$\log \hat{W}_n^{(s)} \sim N(0.10x_n, \gamma^2)$$
 
-
-## Example 1: Based on Biology, cont.
+## Example 1: Based on Biology
 
 - The `aldex.makeScaleMatrix` function can help with this.
 
@@ -338,9 +290,9 @@ $$\log \hat{W}_n^{(s)} \sim N(0.10x_n, \gamma^2)$$
 - For example, if there are only two samples,
 `aldex.makeScaleMatrix(1, c(1,.9), conds <- c("pre", "post"), log = FALSE)` will sample a 10% decrease in means between conditions.
 
--Note: The absolute scale doesn't matter. It is the relationship between conditions.
+- Note: The absolute scale doesn't matter. It is the relationship between conditions.
 
-## Example 1: Based on Biology, cont.
+## Example 1: Based on Biology
 
 ```{r, message = FALSE, echo = TRUE}
 ##Creating an informed model using biological reasoning
@@ -367,7 +319,7 @@ $$\log \hat{W}^{\perp (s)}_{n} \sim N(\mathrm{mean}(z_{1n}, z_{2n}, z_{3n}),\tex
 head(flow_data)
 ```
 
-## Example 2: Flow Cytometry Data, cont.
+## Example 2: Flow Cytometry Data
 
 ```{r, message = FALSE, echo = TRUE, tidy=TRUE, tidy.opts=list(width.cutoff=60)}
 ##Now creating an informed model using the flow data
@@ -385,7 +337,7 @@ for(i in 1:nrow(scale_samps)){
 }
 ```
 
-## Example 2: Flow Cytometry Data, cont.
+## Example 2: Flow Cytometry Data
 ```{r, message = FALSE, echo = TRUE, tidy=TRUE, tidy.opts=list(width.cutoff=60)}
 mod.flow <- aldex(Y, conds, gamma = scale_samps)
 mod.flow %>% filter(we.eBH < 0.05)
@@ -489,9 +441,7 @@ p
 
 - How do we choose a value of $\gamma$?
 
-- Why do we need to choose a value of $\gamma$?
-
-- Sensitivity analyses circumvent this need and allow us to understand how an entity's significance changes with varying amounts of scale noise.
+- Sensitivity analyses allow us to understand how an entity's significance changes with varying amounts of scale noise.
 
 - Several built-in functions help with this: `aldex.senAnalysis` and `plotGamma`.
 
@@ -522,7 +472,7 @@ plotGamma(sen_res, thresh = .1)
 
 ```
 
-## Example: Sensitivity Analyses, cont.
+## Example: Sensitivity Analyses
 ```{r, echo = FALSE, message = FALSE}
 ##Now running a sensitivity analysis over the default scale model
 
@@ -541,7 +491,7 @@ p[[1]]
 
 ```
 
-## Example: Sensitivity Analyses, cont.
+## Example: Sensitivity Analyses
 ```{r, echo = FALSE, message = FALSE}
 ##Now running a sensitivity analysis over the default scale model
 
@@ -567,6 +517,9 @@ p[[2]]
 - SELEX: Selected Growth Experiment.
 - Goal is to determine which of 1,600 gene variants confer a growth phenotype.
 - Study was conducted so that those variants that confer a growth phenotype would increase in the presence of a bacteriostatic toxin.
+
+## Data Description
+
 - Two conditions present: selected and non-selected.
     1. Selected: Bacteriostatic toxin allows for selected growth in some cell lines.
     2. Non-selected: Growth inhibitor leads to no growth in any of the cell lines.
@@ -584,6 +537,7 @@ library(ggrepel)
 conds <- c(rep("NS", 7), rep("S", 7))
 
 data(selex)
+dim(selex)
 selex[1:4,1:4]
 ```
 
@@ -626,36 +580,40 @@ FP <- rep(NA, length(gamma.to.test))
 for(i in 1:length(gamma.to.test)){
   mod <- aldex(selex,conds,gamma = gamma.to.test[i])
   mod.pos <- row.names(mod %>% filter(we.eBH < 0.05))
-  
+
   TP[i] <- sum(mod.pos %in% true.pos)
   FP[i] <- sum(!(mod.pos %in% true.pos))
 }
 ```
 
-## Testing over Gamma (default scale), cont. 
+## Testing over Gamma (default scale)
 
-```{r, echo = TRUE, eval = FALSE}
-graph.df <- data.frame("Gamma" = rep(gamma.to.test, 2), "Counts" = c(TP, FP), "Group" = c(rep("TP", length(gamma.to.test)), rep("FP", length(gamma.to.test))))
+```{r, echo = TRUE, eval = FALSE, tidy = FALSE}
+graph.df <- data.frame("Gamma" = rep(gamma.to.test, 2),
+                       "Counts" = c(TP, FP),
+                       "Group" = c(rep("TP", length(gamma.to.test)),
+                                   rep("FP", length(gamma.to.test))))
 
-ggplot(graph.df, aes(x = Gamma, y = Counts, group = Group, color = Group)) + 
+ggplot(graph.df, aes(x = Gamma, y = Counts,
+                     group = Group, color = Group)) +
   geom_line(aes(linetype = Group), lwd = 1.25) +
   scale_color_manual(values = c("red3", "royalblue3")) +
   scale_linetype_manual(values=c("twodash", "longdash")) +
   theme_bw() +
-  ylab("Counts") 
+  ylab("Counts")
 ```
 
-## Testing over Gamma (default scale), cont. 
+## Testing over Gamma (default scale)
 
 ```{r, echo = FALSE, eval = TRUE}
 graph.df <- data.frame("Gamma" = rep(gamma.to.test, 2), "Counts" = c(TP, FP), "Group" = c(rep("TP", length(gamma.to.test)), rep("FP", length(gamma.to.test))))
 
-ggplot(graph.df, aes(x = Gamma, y = Counts, group = Group, color = Group)) + 
+ggplot(graph.df, aes(x = Gamma, y = Counts, group = Group, color = Group)) +
   geom_line(aes(linetype = Group), lwd = 1.25) +
   scale_color_manual(values = c("red3", "royalblue3")) +
   scale_linetype_manual(values=c("twodash", "longdash")) +
   theme_bw() +
-  ylab("Counts") 
+  ylab("Counts")
 ```
 
 
@@ -672,7 +630,7 @@ sen_res <- aldex.senAnalysis(clr, gamma = gamma.to.test)
 plotGamma(sen_res, thresh = .1)
 ```
 
-## Built-In Sensitivity Analyses, cont.
+## Built-In Sensitivity Analyses
 
 ```{r, echo = FALSE, eval = TRUE, message = FALSE}
 ##Built-in sensitivity analysis

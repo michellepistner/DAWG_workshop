@@ -1,6 +1,6 @@
 ###Analysis file for simulated data
 
-#####Slide 6#####
+#####Starts on slide 19#####
 
 library(ALDEx2)
 library(tidyverse)
@@ -15,8 +15,6 @@ rdat <- read.csv(file.path("data/simulation/sim_seq_dat.csv"))
 ##Reading in the simulated flow data for building a scale model
 flow_data <- read.csv(file.path("data/simulation/sim_flow_dat.csv"))
 
-#####Slide 7#####
-
 ##Inspecting elements
 
 ## "Y" represents the OTU table
@@ -27,13 +25,11 @@ head(Y)
 conds <- as.character(rdat[,1])
 head(conds)
 
-#####Slide 18#####
 
 ## Fitting and analyzing the original ALDEx2 model
 mod.base <- aldex(Y, conds) ##equivalent to `gamma = NULL`
 mod.base %>% filter(we.eBH < 0.05)
 
-#####Slide 20#####
 
 ## Recreating ALDEx2
 mod.clr <- aldex(Y, conds, gamma = 1e-3)
@@ -44,19 +40,16 @@ plot(mod.base$effect, mod.clr$effect, xlab = "Original ALDEx2
   Effect Size", ylab = "CLR Scale Model Effect Size")
 abline(a=0,b=1, col = "red", lty = "dashed")
 
-#####Slide 28#####
 
 ## Adding noise via the default scale model
 mod.ss <- aldex(Y, conds, gamma = .25)
 mod.ss %>% filter(we.eBH < 0.05)
 
-#####Slide 29#####
 
 ## Adding more noise via the default scale model
 mod.ss.high <- aldex(Y, conds, gamma = 1)
 mod.ss.high %>% filter(we.eBH < 0.05)
 
-#####Slide 34#####
 
 ##Creating an informed model using biological reasoning
 scales <- c(rep(1, 50), rep(0.9, 50))
@@ -65,10 +58,9 @@ scale_samps <- aldex.makeScaleMatrix(.15, scales, conds, log=FALSE)
 mod.know <- aldex(Y, conds, gamma = scale_samps)
 mod.know %>% filter(we.eBH < 0.05)
 
-#####Slides 35-37#####
-
-head(flow_data)
 ##Now creating an informed model using the flow data
+head(flow_data)
+
 flow_data_collapse <- flow_data %>%
   group_by(sample) %>%
   mutate(mean = mean(flow)) %>%
@@ -85,7 +77,6 @@ for(i in 1:nrow(scale_samps)){
 mod.flow <- aldex(Y, conds, gamma = scale_samps)
 mod.flow %>% filter(we.eBH < 0.05)
 
-#####Slide 38#####
 
 ####Plotting and bringing it all together
 
@@ -178,7 +169,6 @@ p2 <- plot_sig2(rrs, truth=truth)
 p <- plot_grid(p1, p2, nrow=2, align="v", rel_heights=c(1.7, 1))
 p
 
-#####Slides 41-43#####
 
 ##Now running a sensitivity analysis over the default scale model
 

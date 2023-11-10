@@ -64,7 +64,7 @@ knitr::include_graphics("figures/disconnect-question.jpg")
     - ALDEx2, DESeq2, edgeR, etc.
     - These methods rely on *normalizations*.
     
-    $$\tilde{\theta_d} = \mathrm{mean}_{\mathrm{post}} \, f(Y) - \mathrm{mean}_{\mathrm{pre}} \, f(Y).$$
+    $$\tilde{\theta_d} =  f(Y).$$
 
 2. Reframe the question (CoDA).
     - Data are compositional.
